@@ -1,13 +1,10 @@
 "use client";
 
-// [INIT]: Import React hooks dan Framer Motion untuk kelenturan animasi koreografi
-import { useState } from "react";
+// [INIT]: Import hooks, framer motion components, icons, dan Supabase client instances
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-// [INIT]: Import icons esensial untuk audio kontrol & navigation dari Lucide React
 import {
   Search,
-  Grid,
-  Trash2,
   Disc,
   Play,
   Pause,
@@ -16,8 +13,9 @@ import {
   SkipForward,
 } from "lucide-react";
 import { Cormorant_Garamond, Inter } from "next/font/google";
+import { supabase } from "@/lib/supabase";
 
-// [INIT]: Typography setup dengan visual hierarchy yang kontras & thoughtful
+// [INIT]: Setup visual typography hierarchy khas Oblique OS
 const serifFont = Cormorant_Garamond({
   subsets: ["latin"],
   weight: ["400", "500"],
@@ -29,122 +27,237 @@ const sansFont = Inter({
   variable: "--font-sans",
 });
 
-// [UTIL]: Mock data struktur database-ready dengan koordinat posisi tersimpan
-const MOCK_VINYLS = [
-  {
-    id: "v1",
-    catalog: "CAT-1975-01",
-    title: "DEPRESSION CHERRY",
-    artist: "Beach House",
-    posTop: "14%",
-    posLeft: "12%",
-    posRotate: "-6deg",
-    bgColor: "bg-red-950",
-    coverImg: "/covers/1.png",
-    description:
-      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse at orci eget diam placerat iaculis. Mauris porta quam ut risus blandit ornare. Nam dignissim rutrum suscipit. Mauris at vehicula neque, non venenatis mi. Morbi quis vestibulum tellus. In sem metus, gravida sit amet.",
-  },
-  {
-    id: "v2",
-    catalog: "CAT-1982-04",
-    title: "SOUNDTRACK ARCHIVE II",
-    artist: "Acoustic & Modular Sync",
-    posTop: "24%",
-    posLeft: "40%",
-    posRotate: "4deg",
-    bgColor: "bg-zinc-800",
-    coverImg: "/covers/2.png",
-    description:
-      "Donec nibh neque, porttitor eu lorem ac, congue faucibus nulla. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. In hac habitasse platea dictumst. Sed ac ex vel magna feugiat finibus.",
-  },
-  {
-    id: "v3",
-    catalog: "CAT-2001-09",
-    title: "RESONANCE FREQUENCY",
-    artist: "The Midnight Low-Fi",
-    posTop: "12%",
-    posLeft: "66%",
-    posRotate: "-3deg",
-    bgColor: "bg-stone-800",
-    coverImg: "/covers/3.png",
-    description:
-      "Ut efficitur vulputate diam, ac scelerisque erat convallis vel. Vestibulum sit amet elementum dolor, non efficitur nisl. Aliquam dictum pretium efficitur. Integer sodales ac nisl ac congue.",
-  },
-  {
-    id: "v4",
-    catalog: "CAT-2015-11",
-    title: "MELANCHOLIA IN BLUE",
-    artist: "Velvet Echoes",
-    posTop: "48%",
-    posLeft: "22%",
-    posRotate: "5deg",
-    bgColor: "bg-slate-900",
-    coverImg: "/covers/4.png",
-    description:
-      "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.",
-  },
-  {
-    id: "v5",
-    catalog: "CAT-2022-07",
-    title: "NEON SHADOWS",
-    artist: "Tokyo Synthwave Lab",
-    posTop: "42%",
-    posLeft: "55%",
-    posRotate: "-4deg",
-    bgColor: "bg-neutral-900",
-    coverImg: "/covers/5.png",
-    description:
-      "Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur? At vero eos et accusamus et iusto odio.",
-  },
+// [UTIL]: Koordinat preset asimetris layout deck agar album berserakan tetap rapi & seimbang
+const POSITION_PRESETS = [
+  { top: "14%", left: "12%", rotate: "-6deg" },
+  { top: "24%", left: "40%", rotate: "4deg" },
+  { top: "12%", left: "66%", rotate: "-3deg" },
+  { top: "48%", left: "18%", rotate: "5deg" },
+  { top: "42%", left: "52%", rotate: "-4deg" },
+  { top: "55%", left: "72%", rotate: "8deg" },
+  { top: "18%", left: "82%", rotate: "-5deg" },
 ];
 
+// [UTIL]: Interface TypeScript yang sinkron 100% dengan skema kolom database asli lu
+interface TrackItem {
+  id: string;
+  catalog: string;
+  title: string;
+  artist: string;
+  album: string;
+  cover_img: string; // FIX: Menyesuaikan nama kolom database
+  audio_url: string;
+  bg_color: string; // FIX: Menyesuaikan nama kolom database
+  description: string;
+  posTop?: string;
+  posLeft?: string;
+  posRotate?: string;
+}
+
 export default function Page() {
-  // [STATE]: Switcher halaman aktif antara mode tumpukan album atau single file digital
+  // [STATE]: State penentu halaman navigasi aktif antara mode Album atau Digital Track Rack
   const [currentTab, setCurrentTab] = useState<"albums" | "tracks">("albums");
-  // [STATE]: Menyimpan ID album arsip aktif yang sedang di-fokuskan di modal player
+  // [STATE]: Wadah penampung seluruh row data mentah dari database
+  const [tracks, setTracks] = useState<TrackItem[]>([]);
+  // [STATE]: Wadah penampung data album unik hasil dari proses penyaringan grouping
+  const [albums, setAlbums] = useState<TrackItem[]>([]);
+  // [STATE]: Status pemuatan loader animasi data
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // [STATE]: State pengunci modal ID, trigger animasi deck meluncur, dan status audio node
   const [activeId, setActiveId] = useState<string | null>(null);
-  // [STATE]: State sementara untuk nge-handle micro-interaction slide-out single track sebelum modal bangun
   const [slidingId, setSlidingId] = useState<string | null>(null);
-  // [STATE]: Menyimpan status trigger putaran audio (play/pause)
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // [HANDLER]: Membuka modal detail album langsung (untuk Mode Album)
-  const handleAlbumClick = (id: string) => {
-    setActiveId(id);
-    setIsPlaying(false);
+  // [STATE]: Timeline seeker tracker posisi berjalannya detik audio
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  // [INIT]: Pointer instance reference DOM ke element HTML5 Audio native
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // [FETCH]: Pipeline pengambilan data real-time dari database Postgres Supabase
+  useEffect(() => {
+    async function fetchArchivedTracks() {
+      try {
+        setIsLoading(true);
+        const { data, error } = await supabase
+          .from("tracks")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        // [VALIDATE]: Tangkap error internal database dan keluarkan pesat deskriptifnya
+        if (error) {
+          throw new Error(error.message + " | Details: " + error.details);
+        }
+
+        if (data) {
+          // [FORMAT]: Pemetaan data baris database ke objek UI dibarengi pembagian posisi koordinat acak
+          const formattedTracks: TrackItem[] = data.map((item, idx) => {
+            const preset = POSITION_PRESETS[idx % POSITION_PRESETS.length];
+            return {
+              id: item.id,
+              catalog: item.catalog,
+              title: item.title,
+              artist: item.artist,
+              album: item.album || "Single Track",
+              cover_img: item.cover_img || "/covers/default.png", // Sinkronisasi kolom
+              audio_url: item.audio_url,
+              bg_color: item.bg_color || "bg-zinc-900", // Memakai konfigurasi warna database
+              description: item.description,
+              posTop: preset.top,
+              posLeft: preset.left,
+              posRotate: preset.rotate,
+            };
+          });
+
+          setTracks(formattedTracks);
+
+          // [CALC]: Filter Group By di level frontend untuk menyaring nama-nama album yang unik
+          const uniqueAlbumsMap: { [key: string]: TrackItem } = {};
+          formattedTracks.forEach((track) => {
+            if (track.album && !uniqueAlbumsMap[track.album]) {
+              uniqueAlbumsMap[track.album] = track;
+            }
+          });
+          setAlbums(Object.values(uniqueAlbumsMap));
+        }
+      } catch (err: any) {
+        // FIX: Menampilkan string pesan error asli dari server, bukan sekadar objek kosong {}
+        console.error(
+          "Error fetching tracks from Supabase:",
+          err.message || err,
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchArchivedTracks();
+  }, []);
+
+  // [HANDLER]: Sinkronisasi trigger play/pause terhadap mesin HTML5 Audio player
+  useEffect(() => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current
+        .play()
+        .catch((err) => console.log("Audio playback blocked:", err));
+    } else {
+      audioRef.current.pause();
+    }
+  }, [isPlaying, activeId]);
+
+  // [HANDLER]: Inject link source file biner audio baru ke engine saat lagu berpindah fokus
+  const handleTrackChange = (audioUrl: string, autoPlay: boolean) => {
+    if (audioRef.current) {
+      audioRef.current.src = audioUrl;
+      audioRef.current.load();
+      if (autoPlay) {
+        audioRef.current
+          .play()
+          .catch((err) => console.log("Playback start error:", err));
+      }
+    }
   };
 
-  // [HANDLER]: Memicu sekuens animasi slide-out ke atas (untuk Mode Single Track)
+  // [HANDLER]: Navigasi ke track berikutnya dalam urutan global, wrap-around ke awal kalau udah di ujung
+  const handleNextTrack = () => {
+    if (!activeId || tracks.length === 0) return;
+    const currentIndex = tracks.findIndex((t) => t.id === activeId);
+    if (currentIndex === -1) return;
+    const nextTrack = tracks[(currentIndex + 1) % tracks.length];
+    setActiveId(nextTrack.id);
+    setIsPlaying(true);
+    handleTrackChange(nextTrack.audio_url, true);
+  };
+
+  // [HANDLER]: Navigasi ke track sebelumnya, wrap-around ke akhir kalau udah di track pertama
+  const handlePrevTrack = () => {
+    if (!activeId || tracks.length === 0) return;
+    const currentIndex = tracks.findIndex((t) => t.id === activeId);
+    if (currentIndex === -1) return;
+    const prevTrack =
+      tracks[(currentIndex - 1 + tracks.length) % tracks.length];
+    setActiveId(prevTrack.id);
+    setIsPlaying(true);
+    handleTrackChange(prevTrack.audio_url, true);
+  };
+
+  // [HANDLER]: Event click pengunci modal piringan hitam di album section
+  const handleAlbumClick = (track: TrackItem) => {
+    setActiveId(track.id);
+    setIsPlaying(false);
+    setTimeout(() => handleTrackChange(track.audio_url, false), 50);
+  };
+
+  // [HANDLER]: Trigger mulainya runtunan koreografi meluncur ke atas pada mode track rack
   const handleTrackClick = (id: string) => {
     if (!slidingId && !activeId) {
       setSlidingId(id);
     }
   };
 
-  // [HANDLER]: Callback pas animasi slide-out selesai, langsung oper ke modal player utama
-  const handleTrackAnimationComplete = (id: string) => {
-    if (slidingId === id) {
-      setActiveId(id);
+  // [HANDLER]: Callback eksekusi ketika kartu selesai meluncur, kunci data buka modal media control
+  const handleTrackAnimationComplete = (track: TrackItem) => {
+    if (slidingId === track.id) {
+      setActiveId(track.id);
       setSlidingId(null);
-      setIsPlaying(false);
+      setIsPlaying(true);
+      setTimeout(() => handleTrackChange(track.audio_url, true), 50);
     }
   };
 
-  // [HANDLER]: Reset state fokus pas area backdrop di-klik
+  // [HANDLER]: Mematikan mesin pemutaran musik dan membersihkan seluruh state penunjuk aktif
   const handleClose = () => {
     setActiveId(null);
     setSlidingId(null);
     setIsPlaying(false);
+    if (audioRef.current) audioRef.current.pause();
   };
 
-  // [CALC]: Kalkulasi penarikan data objek item yang aktif berdasarkan ID
-  const activeItem = MOCK_VINYLS.find((v) => v.id === activeId);
+  // [HANDLER]: Sinkronisasi penunjuk waktu berjalannya musik dari metadata element audio asli
+  const handleTimeUpdate = () => {
+    if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) setDuration(audioRef.current.duration);
+  };
+
+  // [HANDLER]: Lompat durasi menit lagu saat area garis horizontal progress bar di-klik user
+  const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audioRef.current || duration === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const width = rect.width;
+    const newTime = (clickX / width) * duration;
+    audioRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
+  };
+
+  // [FORMAT]: Konversi hitungan detik mentah menjadi susunan teks waktu format digital mm:ss
+  const formatTime = (time: number) => {
+    if (isNaN(time)) return "0:00";
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+  };
+
+  // [CALC]: Cari data record target lagu yang sedang di-load oleh sistem modal aktif
+  const activeItem = tracks.find((v) => v.id === activeId);
 
   return (
-    // [STYLE]: Base canvas layout pembungkus global dengan inject variables font kustom
     <div
       className={`${sansFont.variable} ${serifFont.variable} font-sans min-h-screen bg-[#0d0d0d] text-[#e4e4e7] selection:bg-zinc-700 px-8 py-4 flex flex-col justify-between overflow-x-hidden`}
     >
+      {/* Hidden background html5 media node audio framework */}
+      <audio
+        ref={audioRef}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleNextTrack}
+      />
+
       {/* ==================== TOP NAVIGATION ==================== */}
       <header className="w-full flex items-center justify-between text-xs tracking-wider text-zinc-400 border-b border-zinc-950 pb-4">
         <nav className="flex gap-6">
@@ -180,235 +293,221 @@ export default function Page() {
         </div>
 
         <nav className="flex gap-6">
-          <a href="#" className="hover:text-white transition-colors">
-            About
-          </a>
-          <a href="#" className="hover:text-white transition-colors">
-            Sign up
-          </a>
+          <span className="text-zinc-600 font-mono text-[10px] uppercase">
+            Oblique OS v1.2
+          </span>
         </nav>
       </header>
 
       {/* ==================== MAIN CORE SECTION ==================== */}
       <main className="flex-1 flex flex-col mt-10 relative">
-        {/* ---------------- INTERFACES 1: MODE ALBUMS (ORGANIC SCATTERED) ---------------- */}
-        {currentTab === "albums" && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex flex-col flex-1"
-          >
-            <div className="w-full flex items-center justify-between text-[11px] tracking-wide text-zinc-600 mb-6 ml-32"></div>
-
-            <div className="grid grid-cols-1 md:grid-cols-4 items-end gap-4 border-b border-zinc-950 pb-4 ml-32">
-              <h1 className="font-serif text-5xl md:col-span-3 text-zinc-200 tracking-tight leading-none">
-                Repository of Remnants
-              </h1>
-              <div className="text-right font-mono text-[11px] text-zinc-500 space-y-0.5 md:col-span-1 hidden md:block mr-32">
-                <p>Archive Assemblage</p>
-                <p className="text-zinc-400">Jul 29, 1975</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mt-6 max-w-4xl text-xs md:text-[13px] text-zinc-400 leading-relaxed font-light tracking-wide ml-32">
-              <p>
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do
-                eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut
-                enim ad minim veniam, quis nostrud exercitation ullamco laboris
-                nisi ut aliquip ex ea commodo consequat.
-              </p>
-              <p>
-                Excepteur sint occaecat cupidatat non proident, sunt in culpa
-                qui officia deserunt mollit anim id est laborum. Status labels
-                indicate the integrity of each record.
-              </p>
-            </div>
-
-            {/* Area Persebaran Album Organik */}
-            <div className="flex-1 min-h-120 w-full relative mt-8">
-              {MOCK_VINYLS.map((vinyl) => (
-                <div
-                  key={vinyl.id}
-                  onClick={() => handleAlbumClick(vinyl.id)}
-                  className="absolute w-52 group cursor-pointer transition-transform duration-300 hover:scale-105"
-                  style={{
-                    top: vinyl.posTop,
-                    left: vinyl.posLeft,
-                    transform: `rotate(${vinyl.posRotate})`,
-                  }}
-                >
-                  <div
-                    className={`w-full aspect-square ${vinyl.bgColor} border border-white/5 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.7)] p-4 flex flex-col justify-between relative overflow-hidden rounded-sm`}
-                  >
-                    <img
-                      src={vinyl.coverImg}
-                      className="absolute inset-0 w-full h-full object-cover z-0 opacity-90"
-                      alt=""
-                    />
-                    <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent z-10" />
-
-                    <div className="flex justify-between items-start font-mono text-[8px] text-zinc-300 z-20">
-                      <span>{vinyl.catalog}</span>
-                      <Disc size={11} className="text-zinc-400" />
-                    </div>
-                    <div className="z-20">
-                      <h3 className="font-mono text-[9px] text-white font-semibold tracking-wide line-clamp-1">
-                        {vinyl.title}
-                      </h3>
-                      <p className="font-serif italic text-[11px] text-zinc-300 line-clamp-1">
-                        {vinyl.artist}
-                      </p>
-                    </div>
+        {isLoading ? (
+          <div className="flex-1 flex items-center justify-center font-mono text-zinc-600 text-xs tracking-widest uppercase animate-pulse">
+            Syncing database connection...
+          </div>
+        ) : (
+          <>
+            {/* ---------------- INTERFACES 1: MODE ALBUMS (SINKRON DATA REAL-TIME) ---------------- */}
+            {currentTab === "albums" && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex flex-col flex-1"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-4 items-end gap-4 border-b border-zinc-950 pb-4 ml-32">
+                  <h1 className="font-serif text-5xl md:col-span-3 text-zinc-200 tracking-tight leading-none">
+                    Repository of Remnants
+                  </h1>
+                  <div className="text-right font-mono text-[11px] text-zinc-500 space-y-0.5 md:col-span-1 hidden md:block mr-32">
+                    <p>Archive Assemblage</p>
+                    <p className="text-zinc-400">DYNAMICS SYSTEM</p>
                   </div>
                 </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
 
-        {/* ---------------- INTERFACES 2: MODE SINGLE TRACK (DIAGONAL PERSPECTIVE DECK) ---------------- */}
-        {currentTab === "tracks" && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex-1 flex flex-col justify-center items-center min-h-137.5 relative"
-          >
-            {/* Teks Deskripsi Estetik Atas */}
-            <div className="absolute top-0 left-32 max-w-xs font-mono text-[11px] text-zinc-600 space-y-1">
-              <p className="text-zinc-500 uppercase tracking-wider">
-                Digital Indexing Rack
-              </p>
-              <p className="font-light leading-relaxed">
-                Perspective sequence mapping for individual track metadata
-                architecture.
-              </p>
-            </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mt-6 max-w-4xl text-xs md:text-[13px] text-zinc-400 leading-relaxed font-light tracking-wide ml-32">
+                  <p>
+                    Membaca database Supabase secara real-time. Setiap entitas
+                    di bawah mewakili satu album penuh. Musik dikunci otomatis
+                    langsung dari penyaringan metadata.
+                  </p>
+                </div>
 
-            {/* [STYLE]: Parent container pake nilai perspective god-mode 65536px temuan lu */}
-            <div
-              className="relative w-full max-w-5xl h-125 flex items-center justify-center mt-8"
-              style={{ perspective: "65536px" }}
-            >
-              {(() => {
-                // [CALC]: Cari tahu kartu mana yang lagi aktif/sliding biar sisa barisan tahu harus merapat ke mana
-                const targetId = slidingId || activeId;
-                const targetIndex = MOCK_VINYLS.findIndex(
-                  (v) => v.id === targetId,
-                );
-                const totalItems = MOCK_VINYLS.length;
-
-                return MOCK_VINYLS.map((track, index) => {
-                  const isSliding = slidingId === track.id;
-                  const isActive = activeId === track.id;
-
-                  // [CALC]: Logika geser sisa barisan. Kalau kartu di depannya dicabut, kartu belakang otomatis kurangi indeksnya (maju)
-                  const visualIndex =
-                    targetIndex !== -1 && index > targetIndex
-                      ? index - 1
-                      : index;
-
-                  return (
-                    <motion.div
-                      key={track.id}
-                      onClick={() => handleTrackClick(track.id)}
+                {/* Area Piringan Berantakan Mengikuti Skema DB */}
+                <div className="flex-1 min-h-120 w-full relative mt-8">
+                  {albums.map((albumItem) => (
+                    <div
+                      key={albumItem.id}
+                      onClick={() => handleAlbumClick(albumItem)}
+                      className="absolute w-52 group cursor-pointer transition-transform duration-300 hover:scale-105"
                       style={{
-                        transformStyle: "preserve-3d",
-                        zIndex: totalItems - index,
+                        top: albumItem.posTop,
+                        left: albumItem.posLeft,
+                        transform: `rotate(${albumItem.posRotate})`,
                       }}
-                      animate={
-                        isSliding
-                          ? {
-                              // KUNCI 1: Balikin opacity ke 0 biar memudar halus sepanjang jalan pas meluncur (ga nge-snap lagi)
-                              x: index * 75 - 150 + 128,
-                              y: index * -35 + 20,
-                              z: index * -40,
-                              rotateX: 32,
-                              rotateY: 42,
-                              rotateZ: -3,
-                              scale: 1.0,
-                              opacity: 1,
-                            }
-                          : isActive
-                            ? {
-                                // Tetap kunci posisi di luar pas modal overlay kebuka
-                                x: index * 75 - 150 + 128,
-                                y: index * -35 + 20,
-                                z: index * -40,
-                                rotateX: 32,
-                                rotateY: 42,
-                                rotateZ: -3,
-                                scale: 1.0,
-                                opacity: 0,
-                              }
-                            : {
-                                // KUNCI 2: Kartu lain dipaksa pake visualIndex biar otomatis merapat nutupin celah kosong
-                                x: visualIndex * 85 - 170,
-                                y: visualIndex * -35 + 20,
-                                z: visualIndex * -40,
-                                rotateX: 32,
-                                rotateY: 42,
-                                rotateZ: -3,
-                                scale: 1.0,
-                                opacity: 1,
-                              }
-                      }
-                      whileHover={
-                        !slidingId && !activeId
-                          ? {
-                              // Hover juga disesuaikan ke posisi visual terbarunya
-                              y: visualIndex * -35 + 20 - 25,
-                              opacity: 1,
-                              transition: { duration: 0.2 },
-                            }
-                          : {}
-                      }
-                      transition={{
-                        duration: isSliding ? 0.5 : 0.45,
-                        ease: isSliding ? "easeOut" : "easeInOut",
-                      }}
-                      onAnimationComplete={() =>
-                        handleTrackAnimationComplete(track.id)
-                      }
-                      className="absolute w-64 h-64 cursor-pointer origin-center shadow-[-20px_25px_50px_rgba(0,0,0,0.85)] border border-white/10 rounded-xs overflow-hidden select-none bg-zinc-950"
                     >
-                      {/* Tampilan Konten di Dalam Kartu Rack */}
                       <div
-                        className={`w-full h-full ${track.bgColor} p-5 flex flex-col justify-between relative`}
+                        className={`w-full aspect-square ${albumItem.bg_color} border border-white/5 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.7)] p-4 flex flex-col justify-between relative overflow-hidden rounded-sm`}
                       >
                         <img
-                          src={track.coverImg}
-                          className="absolute inset-0 w-full h-full object-cover opacity-85 pointer-events-none z-0"
+                          src={albumItem.cover_img}
+                          className="absolute inset-0 w-full h-full object-cover z-0 opacity-90"
                           alt=""
                         />
-                        <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-black/5 z-10" />
+                        <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent z-10" />
 
-                        {/* Top metadata label */}
-                        <div className="flex justify-between items-center font-mono text-[9px] text-zinc-400 z-20">
-                          <span>{track.catalog}</span>
-                          <span className="text-[7px] bg-white/10 px-1.5 py-0.5 rounded-xs tracking-widest text-white font-bold uppercase">
-                            Track
-                          </span>
+                        <div className="flex justify-between items-start font-mono text-[8px] text-zinc-300 z-20">
+                          <span>{albumItem.catalog}</span>
+                          <Disc size={11} className="text-zinc-400" />
                         </div>
-
-                        {/* Bottom title info */}
-                        <div className="z-20 space-y-0.5">
-                          <h3 className="font-mono text-[11px] text-white font-bold tracking-wide uppercase line-clamp-1">
-                            {track.title}
+                        <div className="z-20">
+                          <h3 className="font-mono text-[9px] text-white font-semibold tracking-wide line-clamp-1 uppercase">
+                            {albumItem.album}
                           </h3>
-                          <p className="font-serif italic text-xs text-zinc-300 line-clamp-1">
-                            {track.artist}
+                          <p className="font-serif italic text-[11px] text-zinc-300 line-clamp-1">
+                            {albumItem.artist}
                           </p>
                         </div>
                       </div>
-                    </motion.div>
-                  );
-                });
-              })()}
-            </div>
-          </motion.div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {/* ---------------- INTERFACES 2: MODE SINGLE TRACK (DIAGONAL DECK PERSPECTIVE) ---------------- */}
+            {currentTab === "tracks" && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex-1 flex flex-col justify-center items-center min-h-137.5 relative"
+              >
+                <div className="absolute top-0 left-32 max-w-xs font-mono text-[11px] text-zinc-600 space-y-1">
+                  <p className="text-zinc-500 uppercase tracking-wider">
+                    Digital Indexing Rack
+                  </p>
+                  <p className="font-light leading-relaxed">
+                    Perspective sequence mapping for individual track metadata
+                    architecture.
+                  </p>
+                </div>
+
+                {/* Perspective Container God Mode 65536px Kebanggaan Lu */}
+                <div
+                  className="relative w-full max-w-5xl h-125 flex items-center justify-center mt-8"
+                  style={{ perspective: "65536px" }}
+                >
+                  {(() => {
+                    const targetId = slidingId || activeId;
+                    const targetIndex = tracks.findIndex(
+                      (v) => v.id === targetId,
+                    );
+                    const totalItems = tracks.length;
+
+                    return tracks.map((track, index) => {
+                      const isSliding = slidingId === track.id;
+                      const isActive = activeId === track.id;
+                      const visualIndex =
+                        targetIndex !== -1 && index > targetIndex
+                          ? index - 1
+                          : index;
+
+                      return (
+                        <motion.div
+                          key={track.id}
+                          onClick={() => handleTrackClick(track.id)}
+                          style={{
+                            transformStyle: "preserve-3d",
+                            zIndex: totalItems - index,
+                          }}
+                          animate={
+                            isSliding
+                              ? {
+                                  x: index * 75 - 150 + 128,
+                                  y: index * -35 + 20,
+                                  z: index * -40,
+                                  rotateX: 32,
+                                  rotateY: 42,
+                                  rotateZ: -3,
+                                  scale: 1.0,
+                                  opacity: 1,
+                                }
+                              : isActive
+                                ? {
+                                    x: index * 75 - 150 + 128,
+                                    y: index * -35 + 20,
+                                    z: index * -40,
+                                    rotateX: 32,
+                                    rotateY: 42,
+                                    rotateZ: -3,
+                                    scale: 1.0,
+                                    opacity: 0,
+                                  }
+                                : {
+                                    x: visualIndex * 85 - 170,
+                                    y: visualIndex * -35 + 20,
+                                    z: visualIndex * -40,
+                                    rotateX: 32,
+                                    rotateY: 42,
+                                    rotateZ: -3,
+                                    scale: 1.0,
+                                    opacity: 1,
+                                  }
+                          }
+                          whileHover={
+                            !slidingId && !activeId
+                              ? {
+                                  y: visualIndex * -35 + 20 - 25,
+                                  opacity: 1,
+                                  transition: { duration: 0.2 },
+                                }
+                              : {}
+                          }
+                          transition={{
+                            duration: isSliding ? 0.5 : 0.45,
+                            ease: isSliding ? "easeOut" : "easeInOut",
+                          }}
+                          onAnimationComplete={() =>
+                            handleTrackAnimationComplete(track)
+                          }
+                          className="absolute w-64 h-64 cursor-pointer origin-center shadow-[-20px_25px_50px_rgba(0,0,0,0.85)] border border-white/10 rounded-xs overflow-hidden select-none bg-zinc-950"
+                        >
+                          <div
+                            className={`w-full h-full ${track.bg_color} p-5 flex flex-col justify-between relative`}
+                          >
+                            <img
+                              src={track.cover_img}
+                              className="absolute inset-0 w-full h-full object-cover opacity-85 pointer-events-none z-0"
+                              alt=""
+                            />
+                            <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-black/5 z-10" />
+
+                            <div className="flex justify-between items-center font-mono text-[9px] text-zinc-400 z-20">
+                              <span>{track.catalog}</span>
+                              <span className="text-[7px] bg-white/10 px-1.5 py-0.5 rounded-xs tracking-widest text-white font-bold uppercase">
+                                Track
+                              </span>
+                            </div>
+
+                            <div className="z-20 space-y-0.5">
+                              <h3 className="font-mono text-[11px] text-white font-bold tracking-wide uppercase line-clamp-1">
+                                {track.title}
+                              </h3>
+                              <p className="font-serif italic text-xs text-zinc-300 line-clamp-1">
+                                {track.artist}
+                              </p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    });
+                  })()}
+                </div>
+              </motion.div>
+            )}
+          </>
         )}
 
-        {/* ==================== CENTERED BACKDROP BLUR OVERLAY (MODAL PLAYER) ==================== */}
+        {/* ==================== MODAL OVERLAY CUSTOM MEDIA CONTROLLER ==================== */}
         <AnimatePresence>
           {activeId && activeItem && (
             <motion.div
@@ -426,9 +525,8 @@ export default function Page() {
                 onClick={(e) => e.stopPropagation()}
                 className="flex flex-col md:flex-row md:items-start items-center justify-center gap-24 max-w-5xl w-full bg-transparent select-none"
               >
-                {/* ---------------- SECTOR KIRI: AUDIO MECHANISM COVER ---------------- */}
+                {/* ---------------- SECTOR KIRI: VINYL MECHANISM COVER ---------------- */}
                 <div className="relative w-80 h-80 flex items-center shrink-0">
-                  {/* [RENDER]: Piringan hitam vinyl HANYA muncul pas di mode Albums */}
                   {currentTab === "albums" && (
                     <motion.div
                       initial={{ x: "0%" }}
@@ -455,16 +553,15 @@ export default function Page() {
 
                   {/* Main Box Sleeve Cover */}
                   <div
-                    className={`w-full h-full ${activeItem.bgColor} border border-white/10 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.95)] p-6 flex flex-col justify-between relative overflow-hidden rounded-sm z-10`}
+                    className={`w-full h-full ${activeItem.bg_color} border border-white/10 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.95)] p-6 flex flex-col justify-between relative overflow-hidden rounded-sm z-10`}
                   >
                     <img
-                      src={activeItem.coverImg}
+                      src={activeItem.cover_img}
                       className="absolute inset-0 w-full h-full object-cover z-0"
                       alt=""
                     />
                     <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/20 to-transparent pointer-events-none z-10" />
 
-                    {/* Top status bar icon */}
                     <div className="flex justify-between items-start font-mono text-[9px] text-zinc-300 z-20">
                       <span>{activeItem.catalog}</span>
                       <Disc
@@ -474,42 +571,42 @@ export default function Page() {
                       />
                     </div>
 
-                    {/* Bottom layout identity & compact player control */}
                     <div className="z-20 space-y-3 flex flex-col justify-end">
                       <div className="space-y-0.5 px-0.5">
-                        <h3 className="font-mono text-[11px] text-white font-bold tracking-wider uppercase leading-tight">
+                        <h3 className="font-mono text-[11px] text-white font-bold tracking-wider uppercase leading-tight line-clamp-1">
                           {activeItem.title}
                         </h3>
-                        <p className="font-serif italic text-xs text-zinc-300 font-light">
+                        <p className="font-serif italic text-xs text-zinc-300 font-light line-clamp-1">
                           {activeItem.artist}
                         </p>
                       </div>
 
-                      {/* Player Control Overlay */}
+                      {/* Timeline & Audio Button Core Controls */}
                       <div className="bg-black/75 backdrop-blur-md rounded border border-white/10 p-3 flex flex-col gap-2.5 shadow-xl">
-                        {/* 1. Progress Bar horizontal slider */}
-                        <div className="w-full bg-zinc-800/80 h-1 rounded-full overflow-hidden relative cursor-pointer group">
-                          <motion.div
-                            animate={{ width: isPlaying ? "100%" : "35%" }}
-                            transition={{
-                              duration: isPlaying ? 45 : 0.3,
-                              ease: "linear",
+                        <div
+                          onClick={handleProgressBarClick}
+                          className="w-full bg-zinc-800/80 h-1 rounded-full overflow-hidden relative cursor-pointer group"
+                        >
+                          <div
+                            style={{
+                              width: `${duration ? (currentTime / duration) * 100 : 0}%`,
                             }}
-                            className="bg-white h-full rounded-full relative"
+                            className="bg-white h-full rounded-full relative transition-all duration-100 ease-linear"
                           />
                         </div>
 
-                        {/* 2. Audio Control Button Bar */}
                         <div className="flex items-center justify-between text-zinc-400 px-0.5">
-                          <button className="hover:text-white transition-colors active:scale-90">
+                          <button className="hover:text-white transition-colors">
                             <Shuffle size={11} />
                           </button>
 
                           <div className="flex items-center gap-3">
-                            <button className="hover:text-white transition-colors active:scale-90">
+                            <button
+                              onClick={handlePrevTrack}
+                              className="hover:text-white transition-colors"
+                            >
                               <SkipBack size={12} fill="currentColor" />
                             </button>
-
                             <button
                               onClick={() => setIsPlaying(!isPlaying)}
                               className="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-md"
@@ -524,14 +621,16 @@ export default function Page() {
                                 />
                               )}
                             </button>
-
-                            <button className="hover:text-white transition-colors active:scale-90">
+                            <button
+                              onClick={handleNextTrack}
+                              className="hover:text-white transition-colors"
+                            >
                               <SkipForward size={12} fill="currentColor" />
                             </button>
                           </div>
 
                           <span className="text-[9px] font-mono font-medium tracking-tight text-zinc-500">
-                            {isPlaying ? "0:18" : "0:00"} / 03:45
+                            {formatTime(currentTime)} / {formatTime(duration)}
                           </span>
                         </div>
                       </div>
@@ -539,12 +638,12 @@ export default function Page() {
                   </div>
                 </div>
 
-                {/* ---------------- SECTOR KANAN: DESCRIPTION ALBUM/TRACK FIXED ---------------- */}
+                {/* ---------------- SECTOR KANAN: TEXTUAL METADATA ---------------- */}
                 <div className="max-w-xs md:max-w-sm bg-transparent text-left space-y-3 z-20 ml-6">
                   <div className="border-b border-zinc-800/80 pb-2">
                     <span className="font-mono text-[9px] text-zinc-600 tracking-widest uppercase block mb-0.5">
                       {currentTab === "albums"
-                        ? "Now Playing Archive"
+                        ? "Now Playing Album Archive"
                         : "Digital Audio File Metadata"}
                     </span>
                     <h2 className="font-serif text-3xl text-zinc-200 leading-tight">
@@ -554,7 +653,6 @@ export default function Page() {
                       {activeItem.artist}
                     </p>
                   </div>
-
                   <p className="text-xs md:text-[13px] text-zinc-400 leading-relaxed font-light tracking-wide font-sans">
                     {activeItem.description}
                   </p>
@@ -567,8 +665,8 @@ export default function Page() {
 
       {/* ==================== FOOTER ==================== */}
       <footer className="w-full pt-4 border-t border-zinc-950 text-[10px] font-mono text-zinc-600 flex justify-between items-center">
-        <p>© 2026 Music Archive Web Project</p>
-        <p>Built with Next.js & Tailwind</p>
+        <p>© 2026 Oblique System Web Architecture</p>
+        <p>Connected & Synced with Postgres Skema</p>
       </footer>
     </div>
   );
