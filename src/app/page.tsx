@@ -1,5 +1,5 @@
 // [INIT]: Import fonts dan icons pendukung
-import { Search, Grid, Trash2 } from "lucide-react";
+import { Search, Grid, Trash2, Disc } from "lucide-react";
 import { Cormorant_Garamond, Inter } from "next/font/google";
 
 // [INIT]: Inisialisasi font untuk tipografi yang thoughtful
@@ -14,16 +14,60 @@ const sansFont = Inter({
   variable: "--font-sans",
 });
 
+// [UTIL]: Koordinat tetap untuk scattered layout biar estetik & anti-hydration error
+const MOCK_VINYLS = [
+  {
+    id: "v1",
+    catalog: "CAT-1975-01",
+    title: "ALBUM TITLE PLACEHOLDER",
+    artist: "Artist Name / Project I",
+    top: "5%",
+    left: "12%",
+    rotate: "-5deg",
+    bgColor: "bg-zinc-800",
+  },
+  {
+    id: "v2",
+    catalog: "CAT-1982-04",
+    title: "SOUNDTRACK ARCHIVE II",
+    artist: "Acoustic & Modular Sync",
+    top: "18%",
+    left: "38%",
+    rotate: "4deg",
+    bgColor: "bg-neutral-800",
+  },
+  {
+    id: "v3",
+    catalog: "CAT-2001-09",
+    title: "RESONANCE FREQUENCY",
+    artist: "The Midnight Low-Fi",
+    top: "8%",
+    left: "64%",
+    rotate: "-3deg",
+    bgColor: "bg-stone-800",
+  },
+  {
+    id: "v4",
+    catalog: "CAT-2026-X",
+    title: "UNRELEASED TAPE NO. 4",
+    artist: "Unknown Collective",
+    top: "42%",
+    left: "22%",
+    rotate: "7deg",
+    bgColor: "bg-slate-800",
+  },
+];
+
 export default function Page() {
   return (
-    // [STYLE]: Main container dengan warna off-black/charcoal dan text-zinc
+    // [STYLE]: Main container dengan warna off-black/charcoal dan text-zinc[cite: 1]
     <div
       className={`${sansFont.variable} ${serifFont.variable} font-sans min-h-screen bg-[#121212] text-[#e4e4e7] selection:bg-zinc-700 px-8 py-4 flex flex-col justify-between overflow-x-hidden`}
     >
       {/* ==================== TOP NAVIGATION ==================== */}
-      {/* [RENDER]: Header & Navigasi Utama sesuai image_27523b.png */}
+      {/* [RENDER]: Header & Navigasi Utama sesuai image_27b6dc.png[cite: 1] */}
       <header className="w-full flex items-center justify-between text-xs tracking-wider text-zinc-400 border-b border-zinc-900 pb-4">
-        {/* [STYLE]: Left links */}
+        {/* [STYLE]: Left links[cite: 1] */}
         <nav className="flex gap-6">
           <a href="#" className="hover:text-white transition-colors">
             Explore
@@ -39,7 +83,7 @@ export default function Page() {
           </a>
         </nav>
 
-        {/* [STYLE]: Center Logo & Search */}
+        {/* [STYLE]: Center Logo & Search[cite: 1] */}
         <div className="flex items-center gap-4">
           <div className="w-7 h-7 rounded-full border border-zinc-500 flex items-center justify-between px-1 text-[9px] font-medium tracking-tighter">
             <span>fi</span>
@@ -51,7 +95,7 @@ export default function Page() {
           </div>
         </div>
 
-        {/* [STYLE]: Right links */}
+        {/* [STYLE]: Right links[cite: 1] */}
         <nav className="flex gap-6">
           <a href="#" className="hover:text-white transition-colors">
             About
@@ -64,7 +108,7 @@ export default function Page() {
 
       {/* ==================== HERO & TYPOGRAPHY SECTION ==================== */}
       <main className="flex-1 flex flex-col mt-10">
-        {/* [RENDER]: Breadcrumbs & Utility bar */}
+        {/* [RENDER]: Breadcrumbs & Utility bar dengan margin-left 32[cite: 1] */}
         <div className="w-full flex items-center justify-between text-[11px] tracking-wide text-zinc-600 mb-6 ml-32">
           <div className="font-mono">
             <span>Source</span> / <span>Drawer</span> / <span>Registry</span> /{" "}
@@ -80,7 +124,7 @@ export default function Page() {
           </div>
         </div>
 
-        {/* [RENDER]: Main Title & Metadata Header */}
+        {/* [RENDER]: Main Title & Metadata Header[cite: 1] */}
         <div className="grid grid-cols-1 md:grid-cols-4 items-end gap-4 border-b border-zinc-900 pb-4 ml-32">
           <h1 className="font-serif text-5xl md:col-span-3 text-zinc-200 tracking-tight leading-none">
             Repository of Remnants
@@ -91,7 +135,7 @@ export default function Page() {
           </div>
         </div>
 
-        {/* [RENDER]: Two-Column Description (Lorem Ipsum) */}
+        {/* [RENDER]: Two-Column Description (Lorem Ipsum)[cite: 1] */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mt-6 max-w-4xl text-xs md:text-[13px] text-zinc-400 leading-relaxed font-light tracking-wide ml-32">
           <p>
             Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do
@@ -109,14 +153,55 @@ export default function Page() {
           </p>
         </div>
 
-        {/* ==================== CANVAS PLACEHOLDER ==================== */}
-        {/* [STYLE]: Area kosong buat tempat berserakannya vinyl nanti */}
-        <div className="flex-1 min-h-87.5 w-full relative mt-8 rounded-lg border border-dashed border-zinc-900/50 flex items-center justify-center text-zinc-700 text-xs font-mono select-none">
-          [ Organic Scattered Layout Canvas - Ready for Next Phase ]
+        {/* ==================== ORGANIC SCATTERED LAYOUT CANVAS ==================== */}
+        {/* [STYLE]: Canvas area relative sebagai anchor posisi absolute vinyl cover */}
+        <div className="flex-1 min-h-125 w-full relative mt-12 select-none">
+          {/* [RENDER]: Loop data vinyl polosan dengan absolute layout */}
+          {MOCK_VINYLS.map((vinyl) => (
+            <div
+              key={vinyl.id}
+              className="absolute w-56 group cursor-pointer transition-all duration-300 hover:z-50"
+              style={{
+                top: vinyl.top,
+                left: vinyl.left,
+                transform: `rotate(${vinyl.rotate})`,
+              }}
+            >
+              {/* [STYLE]: Mockup Sleeve Vinyl (Aspek 1:1, border halus, bayangan tebal) */}
+              <div
+                className={`w-full aspect-square ${vinyl.bgColor} border border-white/5 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] p-5 flex flex-col justify-between relative overflow-hidden rounded-sm`}
+              >
+                {/* Efek tekstur kardus/sleeve jadul tipis */}
+                <div className="absolute inset-0 bg-linear-to-tr from-black/20 via-transparent to-white/5 pointer-events-none" />
+
+                {/* Header info kecil khas rilisan fisik */}
+                <div className="flex justify-between items-start font-mono text-[9px] text-zinc-500 tracking-wider">
+                  <span>{vinyl.catalog}</span>
+                  <Disc size={12} className="text-zinc-600 animate-pulse" />
+                </div>
+
+                {/* Tengah polosan: Kasih placeholder lingkaran tengah piringan hitam samar */}
+                <div className="w-16 h-16 rounded-full border border-zinc-700/30 self-center flex items-center justify-center opacity-40">
+                  <div className="w-4 h-4 rounded-full bg-zinc-900" />
+                </div>
+
+                {/* Footer metadata album */}
+                <div className="space-y-1 z-10">
+                  <h3 className="font-mono text-[10px] text-zinc-300 font-semibold tracking-wide leading-tight line-clamp-1">
+                    {vinyl.title}
+                  </h3>
+                  <p className="font-serif italic text-xs text-zinc-400 line-clamp-1">
+                    {vinyl.artist}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </main>
 
       {/* ==================== FOOTER ==================== */}
+      {/* [RENDER]: Footer penutup[cite: 1] */}
       <footer className="w-full pt-4 border-t border-zinc-900 text-[10px] font-mono text-zinc-600 flex justify-between items-center">
         <p>© 2026 Music Archive Web Project</p>
         <p>Built with Next.js & Tailwind</p>
