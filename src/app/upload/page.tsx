@@ -23,19 +23,22 @@ export default function UploadPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  // [STATE]: Layer perantara — album yang dipilih & daftar tracklist aslinya
+  const [selectedAlbum, setSelectedAlbum] = useState<any | null>(null);
+  const [albumTracks, setAlbumTracks] = useState<any[]>([]);
+  const [isLoadingTracks, setIsLoadingTracks] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // [HANDLER]: Eksekusi pencarian metadata lagu ke API internal dengan ekstra proteksi
+  // [HANDLER]: Eksekusi pencarian metadata album ke API internal
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     setIsSearching(true);
 
     try {
-      // const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
       const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
 
-      // [VALIDATE]: Cek dulu status HTTP, kalau gak 200 OK, jangan dipaksa pasrah ke res.json()
       if (!res.ok) {
         const errorText = await res.text();
         console.error(
@@ -49,7 +52,6 @@ export default function UploadPage() {
       const data = await res.json();
       setResults(Array.isArray(data) ? data : []);
     } catch (err) {
-      // [VALIDATE]: Tangkap error parsing JSON atau network loss di sini
       console.error("Metadata pipeline broken:", err);
       alert("Gagal konek ke API search. Pastikan backend lu gak crash.");
     } finally {
@@ -57,7 +59,25 @@ export default function UploadPage() {
     }
   };
 
-  // [HANDLER]: Tangani pemilihan file mp3 lewat click explorer atau drag-drop
+  // [HANDLER]: User pilih 1 album dari hasil search -> tarik tracklist aslinya
+  const handleSelectAlbum = async (item: any) => {
+    setSelectedAlbum(item);
+    setIsLoadingTracks(true);
+    try {
+      const res = await fetch(
+        `/api/album-tracks?artist=${encodeURIComponent(item.artist)}&album=${encodeURIComponent(item.title)}`,
+      );
+      const tracks = await res.json();
+      setAlbumTracks(Array.isArray(tracks) ? tracks : []);
+    } catch (err) {
+      console.error("Failed to fetch album tracks:", err);
+      setAlbumTracks([]);
+    } finally {
+      setIsLoadingTracks(false);
+    }
+  };
+
+  // [HANDLER]: Tangani pemilihan file mp3 lewat click explorer
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setAudioFile(e.target.files[0]);
@@ -69,12 +89,11 @@ export default function UploadPage() {
     if (!selectedTrack || !audioFile) return;
     setIsPublishing(true);
 
-    // [UTIL]: Packing payload menggunakan FormData agar binary file bisa terkirim
     const payload = new FormData();
     payload.append("file", audioFile);
     payload.append("title", selectedTrack.title);
     payload.append("artist", selectedTrack.artist);
-    payload.append("album", selectedTrack.title); // Last.fm track search aggregates album reference here
+    payload.append("album", selectedTrack.album);
     payload.append("coverImg", selectedTrack.coverImg);
 
     try {
@@ -82,8 +101,10 @@ export default function UploadPage() {
       if (res.ok) {
         setIsSuccess(true);
         setTimeout(() => {
-          // [STATE]: Reset form state setelah sekuens sukses selesai dipancarkan
+          // [STATE]: Reset semua state, termasuk layer album/tracklist, balik ke awal total
           setSelectedTrack(null);
+          setSelectedAlbum(null);
+          setAlbumTracks([]);
           setAudioFile(null);
           setQuery("");
           setResults([]);
@@ -94,6 +115,17 @@ export default function UploadPage() {
       console.error("Publish execution failed:", err);
     } finally {
       setIsPublishing(false);
+    }
+  };
+
+  // [HANDLER]: Tombol BACK — arahnya beda tergantung lagi di layer mana
+  const handleBack = () => {
+    if (selectedTrack) {
+      setSelectedTrack(null);
+      setAudioFile(null);
+    } else if (selectedAlbum) {
+      setSelectedAlbum(null);
+      setAlbumTracks([]);
     }
   };
 
@@ -108,16 +140,14 @@ export default function UploadPage() {
           <p className="font-serif italic text-xl text-zinc-300">
             {selectedTrack
               ? "Awaiting audio payload assignment."
-              : "Index sequence mapping input."}
+              : selectedAlbum
+                ? "Select track from archived tracklist."
+                : "Index sequence mapping input."}
           </p>
         </div>
-        {selectedTrack && (
-          // [HANDLER]: Tombol mundur balik ke mode pencarian
+        {(selectedTrack || selectedAlbum) && (
           <button
-            onClick={() => {
-              setSelectedTrack(null);
-              setAudioFile(null);
-            }}
+            onClick={handleBack}
             className="flex items-center gap-1.5 font-mono text-[10px] text-zinc-500 hover:text-white transition-colors cursor-pointer"
           >
             <ArrowLeft size={11} /> BACK
@@ -126,8 +156,8 @@ export default function UploadPage() {
       </div>
 
       <AnimatePresence mode="wait">
-        {!selectedTrack ? (
-          // ---------------- INTERFACE LAYER A: SEARCH METADATA ----------------
+        {!selectedAlbum ? (
+          // ---------------- INTERFACE LAYER A: SEARCH ALBUM ----------------
           <motion.div
             key="search-layer"
             initial={{ opacity: 0, y: 5 }}
@@ -140,7 +170,7 @@ export default function UploadPage() {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search track title to sync metadata structure..."
+                placeholder="Search album title to sync metadata structure..."
                 className="flex-1 bg-zinc-950 border border-zinc-900 rounded-xs px-4 py-2.5 font-mono text-xs text-white placeholder-zinc-700 focus:outline-hidden focus:border-zinc-700 transition-colors"
               />
               <button
@@ -157,7 +187,6 @@ export default function UploadPage() {
               </button>
             </form>
 
-            {/* Grid Hasil Tarikan API */}
             <div className="space-y-2">
               {results.map((item) => (
                 <div
@@ -167,7 +196,7 @@ export default function UploadPage() {
                   <div className="flex items-center gap-3.5">
                     <div className="w-11 h-11 bg-zinc-900 rounded-xs overflow-hidden relative border border-white/5">
                       <img
-                        src={item.coverImg}
+                        src={item.coverImg || "/covers/1.png"}
                         alt=""
                         className="w-full h-full object-cover"
                       />
@@ -182,7 +211,7 @@ export default function UploadPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => setSelectedTrack(item)}
+                    onClick={() => handleSelectAlbum(item)}
                     className="bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 font-mono text-[10px] tracking-wider px-3 py-1.5 rounded-xs transition-all cursor-pointer text-zinc-300 hover:text-white"
                   >
                     SELECT
@@ -197,8 +226,74 @@ export default function UploadPage() {
               )}
             </div>
           </motion.div>
+        ) : !selectedTrack ? (
+          // ---------------- INTERFACE LAYER B (BARU): PILIH TRACK DARI ALBUM ----------------
+          <motion.div
+            key="tracklist-layer"
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -5 }}
+            className="w-full max-w-xl space-y-4"
+          >
+            {/* Preview album yang dipilih */}
+            <div className="bg-zinc-950 border border-zinc-900 rounded-xs p-4 flex items-center gap-4">
+              <div className="w-14 h-14 bg-zinc-900 border border-white/5 rounded-xs overflow-hidden shrink-0">
+                <img
+                  src={selectedAlbum.coverImg || "/covers/1.png"}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div>
+                <span className="font-mono text-[8px] text-zinc-600 tracking-widest uppercase block">
+                  Album Archive
+                </span>
+                <h3 className="font-mono text-sm font-bold text-white">
+                  {selectedAlbum.title}
+                </h3>
+                <p className="font-serif italic text-xs text-zinc-400">
+                  {selectedAlbum.artist}
+                </p>
+              </div>
+            </div>
+
+            {/* Daftar track asli dari album.getInfo */}
+            {isLoadingTracks ? (
+              <div className="flex items-center justify-center gap-2 py-16 text-zinc-600 font-mono text-[11px] uppercase tracking-wider">
+                <Loader2 size={14} className="animate-spin" />
+                Fetching tracklist...
+              </div>
+            ) : albumTracks.length === 0 ? (
+              <div className="text-center font-mono text-[10px] text-zinc-700 py-16 border border-dashed border-zinc-950 rounded-xs">
+                No tracklist found for this album.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {albumTracks.map((track, idx) => (
+                  <div
+                    key={track.id}
+                    onClick={() => setSelectedTrack(track)}
+                    className="flex items-center justify-between bg-zinc-950/40 border border-zinc-950 rounded-xs p-3 hover:border-zinc-800 hover:bg-zinc-950/70 transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3 font-mono text-xs">
+                      <span className="text-zinc-600">
+                        {(idx + 1).toString().padStart(2, "0")}
+                      </span>
+                      <span className="text-zinc-200 group-hover:text-white">
+                        {track.title}
+                      </span>
+                    </div>
+                    <Disc
+                      size={12}
+                      className="text-zinc-700 group-hover:text-zinc-400"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
         ) : (
-          // ---------------- INTERFACE LAYER B: DRAG DROP AUDIO FILE ----------------
+          // ---------------- INTERFACE LAYER C: UPLOAD AUDIO FILE ----------------
           <motion.div
             key="upload-layer"
             initial={{ opacity: 0, y: 5 }}
@@ -206,11 +301,10 @@ export default function UploadPage() {
             exit={{ opacity: 0, y: -5 }}
             className="w-full max-w-xl space-y-6"
           >
-            {/* Locked Target Preview Card */}
             <div className="bg-zinc-950 border border-zinc-900 rounded-xs p-4 flex items-center gap-4">
               <div className="w-16 h-16 bg-zinc-900 border border-white/5 shadow-lg rounded-xs overflow-hidden shrink-0">
                 <img
-                  src={selectedTrack.coverImg}
+                  src={selectedTrack.coverImg || "/covers/1.png"}
                   alt=""
                   className="w-full h-full object-cover"
                 />
@@ -228,7 +322,6 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {/* Micro-Interaction Upload Dropzone Area */}
             <div
               onClick={() => fileInputRef.current?.click()}
               className={`border border-dashed rounded-xs p-10 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3 bg-zinc-950/20 group ${audioFile ? "border-zinc-700 bg-zinc-950/60" : "border-zinc-900 hover:border-zinc-700"}`}
@@ -280,7 +373,6 @@ export default function UploadPage() {
               )}
             </div>
 
-            {/* Publish Trigger Button */}
             <button
               onClick={handlePublish}
               disabled={!audioFile || isPublishing || isSuccess}
